@@ -1,0 +1,19 @@
+{
+  "name": "hermes-mini",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "observability": { "enabled": true },
+  "ai": { "binding": "AI" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hermes-mini",
+      "database_id": "4ed24d70-5c20-4c35-a218-0dcf27df9436",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "ALLOWED_TELEGRAM_ID": "833233151",
+    "AI_MODEL": "@cf/google/gemma-4-26b-a4b-it"
+  }
+}

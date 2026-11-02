@@ -1,0 +1,15 @@
+CREATE TABLE tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT NOT NULL,
+  done INTEGER NOT NULL DEFAULT 0,
+  day TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_tasks_day ON tasks(day);
+
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
