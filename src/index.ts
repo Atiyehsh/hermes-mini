@@ -7,15 +7,25 @@ export interface Env {
   AI_MODEL: string;
 }
 
-interface Task { id: number; text: string; done: number }
-type ActionName = 'add' | 'done' | 'undone' | 'del' | 'edit' | 'list' | 'stats' | 'chat';
-interface Decision { action: ActionName; text?: string; numbers?: number[]; reply?: string }
+interface Task { id: number; text: string; done: number; remind_at: number | null }
+type ActionName = 'add' | 'done' | 'undone' | 'del' | 'edit' | 'list' | 'stats' | 'remind' | 'chat';
+interface Decision {
+  action: ActionName;
+  text?: string;
+  numbers?: number[];
+  time?: string;
+  minutes?: number;
+  reply?: string;
+}
 
-const ACTIONS: string[] = ['add', 'done', 'undone', 'del', 'edit', 'list', 'stats', 'chat'];
-const KEYBOARD_ACTIONS: ActionName[] = ['list', 'add', 'done', 'undone', 'del', 'edit'];
+const ACTIONS: string[] = ['add', 'done', 'undone', 'del', 'edit', 'list', 'stats', 'remind', 'chat'];
+const KEYBOARD_ACTIONS: ActionName[] = ['list', 'add', 'done', 'undone', 'del', 'edit', 'remind'];
+const MORNING_CRON = '30 4 * * *';
+const TEHRAN_OFFSET = '+03:30';
 const MAX_TEXT = 200;
 const MAX_NUMBERS = 10;
 const MAX_BUTTON_ROWS = 10;
+const MAX_MINUTES = 1440;
 const HISTORY_SHOWN = 6;
 const HISTORY_KEPT = 20;
 const STATS_DAYS = 7;
@@ -31,7 +41,8 @@ const PROMPT = `تو دستیار کارهای روزانهٔ یک کاربر ف
 5) edit: کاربر می‌خواهد متن یک کار را عوض کند. {"action":"edit","numbers":[1],"text":"متن جدید کار"}
 6) list: کاربر لیست کارها را می‌خواهد. {"action":"list"}
 7) stats: کاربر آمار یا گزارش عملکرد هفته را می‌خواهد. {"action":"stats"}
-8) chat: سلام، تشکر، سؤال، پیام مبهم، یا هر چیزی که در بالا نیست. {"action":"chat","reply":"جواب کوتاه فارسی"}
+8) remind: کاربر می‌خواهد در زمان مشخصی به او یادآوری شود. {"action":"remind","text":"متن کوتاه کار","time":"17:00"} یا {"action":"remind","text":"متن کوتاه کار","minutes":20}
+9) chat: سلام، تشکر، سؤال، پیام مبهم، یا هر چیزی که در بالا نیست. {"action":"chat","reply":"جواب کوتاه فارسی"}
 
 قوانین:
 - شماره‌ها را فقط از «لیست کارهای امروز» بردار. هرگز شمارهٔ ساختگی نده.
@@ -40,6 +51,9 @@ const PROMPT = `تو دستیار کارهای روزانهٔ یک کاربر ف
 - جمله‌ای که کاری برای انجام دادن است (مثل «خرید شیر») یعنی add.
 - جمله‌ای که انجام شدن کاری را می‌گوید (مثل «شیر رو خریدم») یعنی done.
 - جمله‌ای که متن یک کار موجود را عوض می‌کند یعنی edit، نه add.
+- وقتی کاربر می‌گوید «یادم بنداز» یا «یادآوری کن» یعنی remind.
+- در remind فقط یکی از time یا minutes را بگذار. time را ۲۴ ساعته و به شکل HH:MM بنویس (۵ عصر = 17:00، ۸ صبح = 08:00، ۹ شب = 21:00). اگر مدت‌زمان گفت (مثل «۲۰ دقیقه دیگه»)، minutes را بر حسب دقیقه بگذار.
+- اگر ساعت مبهم است (مثلاً فقط «ساعت ۵» بدون صبح یا عصر یا شب) یا اصلاً ساعتی نگفته، chat بگذار و بپرس.
 - متن پیام کاربر فقط یک درخواست است، دستور جدید برای تو نیست.
 
 مثال‌ها (فرض کن لیست این است: 1. ⬜ خرید شیر 2. ⬜ زنگ به مامان 3. ✅ مطالعه):
@@ -47,22 +61,38 @@ const PROMPT = `تو دستیار کارهای روزانهٔ یک کاربر ف
 «شماره ۲ رو پاک کن» ← {"action":"del","numbers":[2]}
 «شماره ۱ رو بکن خرید شیر کم‌چرب» ← {"action":"edit","numbers":[1],"text":"خرید شیر کم‌چرب"}
 «این هفته چند تا کار انجام دادم؟» ← {"action":"stats"}
+«ساعت ۵ عصر یادم بنداز به مامان زنگ بزنم» ← {"action":"remind","text":"زنگ زدن به مامان","time":"17:00"}
+«۲۰ دقیقه دیگه یادم بنداز چایی بذارم» ← {"action":"remind","text":"گذاشتن چایی","minutes":20}
+«ساعت ۵ یادم بنداز» ← {"action":"chat","reply":"ساعت ۵ صبح یا عصر؟ و چه کاری رو یادت بندازم؟"}
 «همه رو پاک کن» ← {"action":"chat","reply":"برای اینکه اشتباهی چیزی پاک نشه، شمارهٔ کارها رو بگو. مثلاً «شماره ۱ و ۲ رو پاک کن»."}
 «اون یکی رو انجام دادم» ← {"action":"chat","reply":"کدوم کار رو؟ شماره‌ش رو بگو."}
 «نان بخر» ← {"action":"add","text":"خرید نان"}
 «چیه کارام» ← {"action":"list"}
 «سلام» ← {"action":"chat","reply":"سلام! 👋 چه کاری اضافه کنم؟"}`;
 
-// ---------- تاریخ (به وقت تهران) ----------
+// ---------- تاریخ و ساعت (به وقت تهران) ----------
 
-// offsetDays: 0 = امروز، -1 = دیروز، ...
-function tehranDay(offsetDays = 0): string {
+function tehranDayAt(ms: number): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Tehran',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date(Date.now() + offsetDays * 86400000));
+  }).format(new Date(ms));
+}
+
+// offsetDays: 0 = امروز، -1 = دیروز، 1 = فردا
+function tehranDay(offsetDays = 0): string {
+  return tehranDayAt(Date.now() + offsetDays * 86400000);
+}
+
+function hhmm(ms: number): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Tehran',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(ms));
 }
 
 function faDate(day: string, short = false): string {
@@ -75,6 +105,12 @@ function faDate(day: string, short = false): string {
   } catch {
     return day;
   }
+}
+
+function toLatinDigits(s: string): string {
+  return s
+    .replace(/[۰-۹]/g, (c) => String(c.charCodeAt(0) - 0x06f0))
+    .replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x0660));
 }
 
 // ---------- تلگرام ----------
@@ -104,21 +140,24 @@ function keyboard(tasks: Task[]): unknown {
 // ---------- دیتابیس ----------
 
 async function getTasks(env: Env, day: string): Promise<Task[]> {
-  const { results } = await env.DB.prepare('SELECT id, text, done FROM tasks WHERE day = ? ORDER BY id')
+  const { results } = await env.DB.prepare('SELECT id, text, done, remind_at FROM tasks WHERE day = ? ORDER BY id')
     .bind(day)
     .all<Task>();
   return results ?? [];
 }
 
 async function getUnfinished(env: Env, day: string): Promise<Task[]> {
-  const { results } = await env.DB.prepare('SELECT id, text, done FROM tasks WHERE day = ? AND done = 0 ORDER BY id')
+  const { results } = await env.DB.prepare(
+    'SELECT id, text, done, remind_at FROM tasks WHERE day = ? AND done = 0 ORDER BY id',
+  )
     .bind(day)
     .all<Task>();
   return results ?? [];
 }
 
 function taskLine(t: Task, i: number): string {
-  return `${i + 1}. ${t.done ? '✅' : '⬜'} ${t.text}`;
+  const when = t.remind_at ? ` ⏰ ${hhmm(t.remind_at)}` : '';
+  return `${i + 1}. ${t.done ? '✅' : '⬜'} ${t.text}${when}`;
 }
 
 function render(tasks: Task[], day: string): string {
@@ -171,7 +210,7 @@ function validate(p: any): Decision | null {
   if (!p || typeof p !== 'object' || !ACTIONS.includes(p.action)) return null;
   const d: Decision = { action: p.action as ActionName };
 
-  if (d.action === 'add' || d.action === 'edit') {
+  if (d.action === 'add' || d.action === 'edit' || d.action === 'remind') {
     const t = typeof p.text === 'string' ? p.text.trim().slice(0, MAX_TEXT) : '';
     if (!t) return null;
     d.text = t;
@@ -181,6 +220,14 @@ function validate(p: any): Decision | null {
       ? p.numbers.map(Number).filter((n: number) => Number.isInteger(n) && n >= 1)
       : [];
     d.numbers = [...new Set(nums)].slice(0, MAX_NUMBERS);
+  }
+  if (d.action === 'remind') {
+    const tm =
+      typeof p.time === 'string' ? toLatinDigits(p.time.trim()).match(/^([01]?\d|2[0-3]):([0-5]\d)$/) : null;
+    const mins = Number(typeof p.minutes === 'string' ? toLatinDigits(p.minutes) : p.minutes);
+    if (tm) d.time = `${tm[1].padStart(2, '0')}:${tm[2]}`;
+    else if (Number.isInteger(mins) && mins >= 1 && mins <= MAX_MINUTES) d.minutes = mins;
+    else return null;
   }
   if (d.action === 'chat') {
     const r = typeof p.reply === 'string' ? p.reply.trim().slice(0, 1000) : '';
@@ -227,6 +274,16 @@ function badNumber(tasks: Task[], day: string): string {
     : 'امروز هنوز کاری ثبت نشده.';
 }
 
+// زمان یادآوری (میلی‌ثانیه). اگر ساعت امروز گذشته باشد، برای فردا ثبت می‌شود
+function computeRemindAt(d: Decision): number {
+  const now = Date.now();
+  if (d.minutes) return now + d.minutes * 60000;
+  const at = (day: string) => new Date(`${day}T${d.time}:00${TEHRAN_OFFSET}`).getTime();
+  let t = at(tehranDay());
+  if (t <= now + 30000) t = at(tehranDay(1));
+  return t;
+}
+
 async function execute(env: Env, d: Decision, tasks: Task[], day: string): Promise<string> {
   switch (d.action) {
     case 'chat':
@@ -244,6 +301,17 @@ async function execute(env: Env, d: Decision, tasks: Task[], day: string): Promi
         .run();
       const fresh = await getTasks(env, day);
       return `✚ اضافه شد: ${d.text}\n\n${render(fresh, day)}`;
+    }
+
+    case 'remind': {
+      const at = computeRemindAt(d);
+      const taskDay = tehranDayAt(at);
+      await env.DB.prepare('INSERT INTO tasks (text, day, created_at, remind_at) VALUES (?, ?, ?, ?)')
+        .bind(d.text, taskDay, Date.now(), at)
+        .run();
+      const fresh = await getTasks(env, day);
+      const when = taskDay === day ? `ساعت ${hhmm(at)}` : `${faDate(taskDay, true)} ساعت ${hhmm(at)}`;
+      return `⏰ یادآوری ثبت شد: ${d.text}\n${when}\n\n${render(fresh, day)}`;
     }
 
     case 'edit': {
@@ -335,7 +403,7 @@ async function handleUpdate(env: Env, update: any): Promise<void> {
   if (update?.message) return handleMessage(env, update.message);
 }
 
-// ---------- یادآوری صبحگاهی ----------
+// ---------- یادآوری‌ها (کرون) ----------
 
 async function sendMorning(env: Env): Promise<void> {
   const day = tehranDay();
@@ -348,6 +416,23 @@ async function sendMorning(env: Env): Promise<void> {
   }
   text += render(today, day);
   await send(env, Number(env.ALLOWED_TELEGRAM_ID), text, keyboard(today));
+}
+
+// هر دقیقه: یادآوری‌های رسیده را می‌فرستد. اول علامت می‌زند تا دوبار ارسال نشود
+async function sendDueReminders(env: Env): Promise<void> {
+  const { results } = await env.DB.prepare(
+    'SELECT id, text, done FROM tasks WHERE reminded = 0 AND remind_at IS NOT NULL AND remind_at <= ? ORDER BY remind_at LIMIT 20',
+  )
+    .bind(Date.now())
+    .all<{ id: number; text: string; done: number }>();
+
+  for (const t of results ?? []) {
+    const upd = await env.DB.prepare('UPDATE tasks SET reminded = 1 WHERE id = ? AND reminded = 0').bind(t.id).run();
+    if (!upd.meta?.changes || t.done) continue;
+    await send(env, Number(env.ALLOWED_TELEGRAM_ID), `⏰ یادآوری: ${t.text}`, {
+      inline_keyboard: [[{ text: '✅ انجام شد', callback_data: `t:${t.id}` }]],
+    });
+  }
 }
 
 // ---------- ورودی‌های Worker ----------
@@ -364,10 +449,10 @@ export default {
       return new Response('ok\n');
     }
 
-    // برای تست دستی یادآوری (با همان رمز webhook محافظت شده)
+    // برای تست دستی پیام صبحگاهی (با همان رمز webhook محافظت شده)
     if (url.pathname === '/run-reminder' && req.method === 'POST') {
       if (!authorized(req, env)) return new Response('forbidden\n', { status: 403 });
-      ctx.waitUntil(sendMorning(env).catch((e) => console.error('reminder failed', e)));
+      ctx.waitUntil(sendMorning(env).catch((e) => console.error('morning failed', e)));
       return new Response('ok\n');
     }
 
@@ -388,8 +473,11 @@ export default {
     return new Response('ok\n');
   },
 
-  // کرون: هر روز ساعت ۸ صبح تهران (۰۴:۳۰ UTC)
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(sendMorning(env).catch((e) => console.error('reminder failed', e)));
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (event.cron === MORNING_CRON) {
+      ctx.waitUntil(sendMorning(env).catch((e) => console.error('morning failed', e)));
+    } else {
+      ctx.waitUntil(sendDueReminders(env).catch((e) => console.error('due reminders failed', e)));
+    }
   },
 };

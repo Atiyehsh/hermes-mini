@@ -16,5 +16,5 @@
     "ALLOWED_TELEGRAM_ID": "833233151",
     "AI_MODEL": "@cf/google/gemma-4-26b-a4b-it"
   },
-  "triggers": { "crons": ["30 4 * * *"] }
+  "triggers": { "crons": ["30 4 * * *", "* * * * *"] }
 }
